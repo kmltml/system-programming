@@ -3,15 +3,15 @@
 #include <linux/fs.h>
 #include <linux/uaccess.h>
 #include <linux/proc_fs.h>
+#include <linux/miscdevice.h>
 
 MODULE_LICENSE("GPL");
 
-// Major number taken from a range dedicated to local and experimental use
-#define CIRC_MAJOR 199
 #define MAX_BUFFER_SIZE 1024
 
 const struct file_operations circ_fops;
 const struct proc_ops proc_fops;
+struct miscdevice device;
 
 char *circ_buffer = NULL;
 size_t buffer_size = 40;
@@ -30,13 +30,12 @@ static int __init circular_init(void)
 		goto err;
 	}
 
-	if ((result = register_chrdev(CIRC_MAJOR, "circular", &circ_fops)) <
-	    0) {
+	if ((result = misc_register(&device)) != 0) {
 		printk(KERN_WARNING
-		       "Cannot register the /dev/circular device with major number: %d\n",
-		       CIRC_MAJOR);
+		       "Cannot register the /dev/circular device\n");
 		goto err;
 	}
+
 	circ_buffer = kmalloc(buffer_size, GFP_KERNEL);
 	if (circ_buffer == NULL) {
 		result = -ENOMEM;
@@ -45,14 +44,15 @@ static int __init circular_init(void)
 		goto err;
 	}
 
-	printk(KERN_INFO "Circular module initialized\n");
+	printk(KERN_INFO "Circular module initialized with minor number %d\n",
+	       device.minor);
 	return 0;
 
 err:
 	if (proc_entry) {
 		proc_remove(proc_entry);
 	}
-	unregister_chrdev(CIRC_MAJOR, "circular");
+	misc_deregister(&device);
 	kfree(circ_buffer);
 	return result;
 }
@@ -62,7 +62,7 @@ static void __exit circular_exit(void)
 	if (proc_entry) {
 		proc_remove(proc_entry);
 	}
-	unregister_chrdev(CIRC_MAJOR, "circular");
+	misc_deregister(&device);
 	kfree(circ_buffer);
 	printk(KERN_INFO "Circular module removed\n");
 }
@@ -139,6 +139,14 @@ const struct file_operations circ_fops = {
 
 const struct proc_ops proc_fops = {
 	.proc_write = proc_write,
+};
+
+struct miscdevice device = {
+	.minor = MISC_DYNAMIC_MINOR,
+	.name = "circular",
+	.fops = &circ_fops,
+	.nodename = "circular",
+	.mode = 0666,
 };
 
 module_init(circular_init);
