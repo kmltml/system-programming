@@ -1,0 +1,197 @@
+#+TITLE: Sprawozdanie z laboratorium 2 - Wstęp
+#+OPTIONS: toc:nil html-postamble:nil
+* LXR i dokumentacja
+
+Do wykonania zadania wykorzystałem stronę lxr. W polu wyszukiwania
+wpisałem ~file_operations~. Spośród kilku wyników wybrałem jedyny z
+kategorii /Structure/, ~include/linux/fs.h~, linia 1814.
+
+Ta struktura zawiera pola, będące wskaźnikami na funkcje odpowiadające
+podstawowym operacjom na plikach. Wygląda na to, pełni ona podobną
+rolę do tablicy wirtualnej w językach obiektowych.
+
+Ponownie wpisałem ~file_operations~ w pole wyszukiwania, i użyłem
+linku ~[usage...]~. Na liście linków znalazłem zaczynające się od
+~fs/hostfs/~, i otrzymałem następujące wyniki:
+
+- ~fs/hostfs/hostfs_kern.c, line 382~
+- ~fs/hostfs/hostfs_kern.c, line 393~
+
+Pole ~owner~ wskazuje (prawdopodobnie) na moduł, który odpowiada za
+obsługę danego rodzaju plików. Pozostałe pola wskazują na
+implementacje odpowiednich funkcji.
+
+W folderze ~Documentation/filesystems~ znalazłem plik ~index.rst~. W
+tym pliku opisane jest kilka innych plików, z których rzuciły mi się w
+oczy ~vfs.rst~ oraz ~path-lookup.txt~. W tym drugim znalazłem
+wszystkie informacje na temat nawigowania drzewa katalogów, jakie
+można by potrzebować.
+
+Wyszukiwarka wskazała dwa pliki: ~fs/ocfs2/namei.h~ oraz
+~include/linux/namei.h~, ten pierwszy wygląda na plik specyficzny dla
+konkretnego systemu plików, więc wybrałem drugi.
+
+W nowszych wersjach tego pliku nie ma funkcji ~user_path~, jednak
+przełączenie się na wersję 4.20 rozwiązało problem.
+
+Po prześledzeniu wywołań różnica jest taka, że ~kern_path~ wywołuje
+funkcję ~filename_lookup~ z argumentem ~getname_kernel(name)~, a
+~user_path~ z ~getname_flags(name, flags, empty)~. Wygląda na to, że
+~user_path~ jest używane, gdy ścieżka jest podana przez program
+użytkownika, a ~kern_path~, gdy ścieżka pochodzi z kodu jądra.
+
+Funkcja ~dget~ kopiuje wskaźnik na strukturę ~dentry~, zwiększając
+licznik referencji. Pozwala to na w pewnym stopniu automatyczne
+zarządzanie zasobami.
+* Kompilacja jądra
+Jako, że pracuję na przygotowanej przez siebie wirtualnej maszynie z
+fedorą musiałem przekopiowac plik ~.config~ z katalogu
+~/usr/src/kernels/5.5.13-200.fc31.x86_64/~.
+
+Komenda ~make help~ pokazuje wszystkie cele zdefiniowane dla jądra
+wraz z krótkim opisem każdego.
+
+Polecenie ~make oldconfig~ aktualizuje konfigurację na podstawie
+starego pliku ~.config~, pozwalając wybrać wartości dla opcji, które
+nie występują w starym pliku ~.config~. Dla wszystkich opcji wybrałem
+domyślną wartość, wciskając enter.
+
+Polecenie ~make menuconfig~ pozwala wprowadzić zmiany w konfiguracji
+za pomocą terminalowego programu opartego na menu.
+
+Przy pomocy ~make menuconfig~ zmieniłem lokalną wersję na ~myfirstkernel~.
+
+[[./img/01-local-version.png]]
+
+Włączyłem też wsparcie dla systemu plików ext3
+
+[[./img/02-ext3.png]]
+
+~make all~ uruchamia kompilację wszystkich celi oznaczonych gwiazdką w
+~make help~, t.j.:
+- ~vmlinux~ - Samo jądro
+- ~modules~ - Wszystkie moduły jądra
+- ~bzImage~ - Skompresowany obraz jądra
+
+Uruchomiłem kompilację jądra poleceniem ~time make all~. Kilka razy
+kompilację przerwał błąd wynikający z braku pakietów. Oprócz rzadko
+występujących ostrzeżeń, głównie pokazywane były wywoływane komendy.
+
+Proces kompilacji trwał około 200 minut.
+
+Polecenie ~make modules_install~ instaluje moduły do ścieżki
+określonej zmienną ~INSTALL_MOD_PATH~, domyślnie ~/~.
+
+Polecenie ~make install~ instaluje jądro używając odpowiedniego
+skryptu, albo lilo.
+
+Zainstalowałem moduły i jądro przy pomocy poleceń
+~make modules_install~ oraz ~make install~. Potrzebowałem
+doinstalować pakiet ~grubby~, ponieważ w nowej wersji fedory
+ten pakiet nie jest zainstalowany domyślnie.
+
+Po zainstalowaniu i ponownym uruchomieniu jądro pojawiło się na liście
+w bootloaderze.
+
+[[./img/03-grub.png]]
+
+Uruchomienie systemu z nowym jądrem zajęło trochę czasu, ale udało
+się. Przy pomocy polecenia ~uname -r~ zweryfikowałem, że uruchomione
+jest moje jądro.
+
+[[./img/04-uname.png]]
+
+* Dynamiczny moduł
+Przekopiowałem kod trywialnego modułu z następnego laboratorium:
+
+~trivial.c~:
+#+BEGIN_SRC c
+#include <linux/module.h>
+
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Kamil Tomala");
+
+static int __init trivial_init(void) {
+    printk(KERN_INFO "Hello, world! I am a trivial module!\n");
+    return 0;
+}
+
+static void __exit trivial_exit(void) {
+    printk(KERN_INFO "Goodbye, world!\n");
+}
+
+module_init(trivial_init);
+module_exit(trivial_exit);
+#+END_SRC
+
+~Makefile~:
+#+BEGIN_SRC make
+obj-m := trivial.o
+
+KDIR := /lib/modules/$(shell uname -r)/build
+PWD := $(shell pwd)
+
+default:
+        $(MAKE) -C $(KDIR) M=$(PWD) modules
+#+END_SRC
+
+[[./img/05-mod-make.png]]
+
+Wszystkie poniższe polecenia wywołałem w kontekście superużytkownika,
+przez użycie polecenia ~sudo -i~
+
+Poleceniem ~insmod trivial.ko~ zainstalowałem moduł. Potem użyłem
+~lsmod~, by potwierdzić, że został zainstalowany:
+
+[[./img/06-lsmod.png]]
+
+[[./img/07-dmesg.png]]
+
+* Emulator QEMU
+
+Uruchomiłem poprzednio skompilowane jądro w QEMU przy pomocy polecenia:
+
+~qemu-system-x86_64 -kernel arch/x86/boot/bzImage -hda ~/fs/Debian-Wheezy-AMD64-root_fs -append 'root=/dev/sda'~
+
+Obraz dysku z minimalnym systemem debian ściągnąłem ze strony
+https://fs.devloop.org.uk/
+
+Przy uruchamianiu systemu wyświetlone zostało kilka błędów (między
+innymi brak interfejsu ~eth0~), ale ostatecznie system uruchomił się,
+i udało się zalogować na konto ~root~ bez hasła.
+
+[[./img/08-qemu.png]]
+
+* Kompilacja jądra UML
+Polecenie ~make defconfig~ tworzy domyślną konfigurację dla danej
+architektury.
+
+Skompilowałem jądro poleceniem ~time make ARCH=um all~. Proces
+kompilacji zajął 7 minut 12 sekund.
+
+Uruchomiłem jądro poleceniem ~./vmlinux ubd0=~/fs/Debian-Wheezy-AMD64-root_fs~
+
+Ponownie wystąpiło kilka błędów, i udało się zalogować na konto ~root~
+
+[[./img/09-uml.png]]
+
+[[./img/10-hostfs.png]]
+
+Jak widać, po zamontowaniu systemu plików ~hostfs~ w systemie pojawił
+się obraz systemu plików maszyny-gospodarza.
+
+Wyświetliłem działające procesy przy pomocy polecenia ~top~ w UML oraz
+w maszynie-gospodarzu:
+
+UML:
+
+[[./img/11-uml-top.png]]
+
+Host:
+
+[[./img/12-host-top.png]]
+
+Widać, że procesy w UML są zupełnie odrębne od procesów na normalnej
+maszynie (n.p. PID 1 w UML to ~init~, a w hoscie to ~systemd~). Widać
+również, że w hoscie kernel odpalony w UML jest widoczny jako zwykły
+proces.
