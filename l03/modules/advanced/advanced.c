@@ -19,14 +19,13 @@ struct miscdevice prname_dev;
 const struct file_operations jiffies_fops;
 struct miscdevice jiffies_dev;
 
-char prname_name[TASK_COMM_LEN] = {0};
+char prname_name[TASK_COMM_LEN] = { 0 };
 
 static int __init circular_init(void)
 {
   int result = 0;
   if ((result = misc_register(&prname_dev)) != 0) {
-    printk(KERN_WARNING
-           "Cannot register the /dev/prname device\n");
+		printk(KERN_WARNING "Cannot register the /dev/prname device\n");
     goto err;
   }
   if ((result = misc_register(&jiffies_dev)) != 0) {
@@ -37,7 +36,7 @@ static int __init circular_init(void)
   printk(KERN_INFO "Module advanced initialized");
   return 0;
 
- err:
+err:
   misc_deregister(&prname_dev);
   misc_deregister(&jiffies_dev);
   return result;
@@ -52,9 +51,9 @@ static void __exit circular_exit(void)
 module_init(circular_init);
 module_exit(circular_exit);
 
-
 ssize_t prname_read(struct file *filp, char __user *user_buf, size_t count,
-                    loff_t *f_pos) {
+		    loff_t *f_pos)
+{
   ssize_t result = 0;
 
   size_t length = strnlen(prname_name, ARRAY_SIZE(prname_name));
@@ -69,7 +68,7 @@ ssize_t prname_read(struct file *filp, char __user *user_buf, size_t count,
     goto out;
   }
 
-  size_t bytes_to_copy = min(count, (size_t) (length - *f_pos));
+	size_t bytes_to_copy = min(count, (size_t)(length - *f_pos));
   result = copy_to_user(user_buf, prname_name + *f_pos, bytes_to_copy);
   if (result != 0) {
     goto out;
@@ -79,16 +78,16 @@ ssize_t prname_read(struct file *filp, char __user *user_buf, size_t count,
 
   result = bytes_to_copy;
 
- out:
+out:
   return result;
 }
 
-
-ssize_t prname_write(struct file *filp, const char __user *user_buf, size_t count,
-                     loff_t *f_pos) {
+ssize_t prname_write(struct file *filp, const char __user *user_buf,
+		     size_t count, loff_t *f_pos)
+{
   int result = 0;
   pid_t new_pid;
-  struct task_struct* task = NULL;
+	struct task_struct *task = NULL;
 
   result = kstrtou32_from_user(user_buf, count, 10, &new_pid);
   if (result != 0) {
@@ -105,8 +104,8 @@ ssize_t prname_write(struct file *filp, const char __user *user_buf, size_t coun
 
   result = count;
 
- out:
-  if(task != NULL) {
+out:
+	if (task != NULL) {
     put_task_struct(task);
     task = NULL;
   }
@@ -127,7 +126,8 @@ struct miscdevice prname_dev = {
 };
 
 ssize_t jiffies_read(struct file *filp, char __user *user_buf, size_t count,
-                     loff_t *f_pos) {
+		     loff_t *f_pos)
+{
   char buffer[16];
 
   uint64_t jiffies = get_jiffies_64();
@@ -138,7 +138,7 @@ ssize_t jiffies_read(struct file *filp, char __user *user_buf, size_t count,
     return 0;
   }
 
-  size_t bytes_to_copy = min(count, (size_t) (length - *f_pos));
+	size_t bytes_to_copy = min(count, (size_t)(length - *f_pos));
 
   int result = copy_to_user(user_buf, buffer + *f_pos, bytes_to_copy);
   if (result != 0) {
