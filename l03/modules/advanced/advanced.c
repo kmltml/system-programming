@@ -195,7 +195,8 @@ ssize_t mountderef_read(struct file *filp, char __user *user_buf, size_t count,
         }
 
         size_t bytes_to_copy = min(count, (size_t)(length - *f_pos));
-        result = copy_to_user(user_buf, mountderef_name + *f_pos, bytes_to_copy);
+	result =
+		copy_to_user(user_buf, mountderef_name + *f_pos, bytes_to_copy);
         if (result != 0) {
                 goto out;
         }
@@ -211,35 +212,42 @@ out:
 ssize_t mountderef_write(struct file *filp, const char __user *user_buf,
                      size_t count, loff_t *f_pos)
 {
+        printk(KERN_INFO "mountderef_write count = %zu\n", count);
   int result = 0;
+        char *path_buff = NULL;
 
-  static char path_buff[PATH_MAX + 1];
-  if (count >= PATH_MAX) {
+        if (count >= PATH_MAX - 1) {
     result = ERANGE;
     goto out;
   }
+        path_buff = kmalloc(PATH_MAX, GFP_KERNEL);
 
   result = copy_from_user(path_buff, user_buf, count);
   if (result != 0) {
     goto out;
   }
-  path_buff[count + 1] = 0;
-  printk(KERN_INFO "mountderef path: %s\n", path_buff);
+        path_buff[count] = 0;
+        printk(KERN_INFO "mountderef path: '%s'\n", path_buff);
 
   struct path path;
 
-  result = kern_path(path_buff, LOOKUP_OPEN | LOOKUP_FOLLOW | LOOKUP_DOWN, &path);
+        result = kern_path(path_buff, LOOKUP_FOLLOW | LOOKUP_DOWN, &path);
   if (result != 0) {
-    printk(KERN_WARNING "mountderef kern_path result: %d\n", result);
+                printk(KERN_WARNING "mountderef kern_path result: %d\n",
+                       result);
     goto out;
   }
 
-  char* path_res = dentry_path_raw(path.mnt->mnt_root, path_buff, ARRAY_SIZE(path_buff));
+        follow_up(&path);
+
+        char *path_res = d_path(&path, path_buff, PATH_MAX - 1);
   strcpy(mountderef_name, path_res);
 
   result = count;
 
- out:
+out:
+        kfree(path_buff);
+        printk(KERN_INFO "Result of mountderef_write: %d\n", result);
   return result;
 }
 
