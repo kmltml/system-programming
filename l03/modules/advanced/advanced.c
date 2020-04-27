@@ -11,6 +11,10 @@
 
 #include <linux/jiffies.h>
 
+#include <linux/namei.h>
+#include <linux/dcache.h>
+#include <linux/mount.h>
+
 MODULE_LICENSE("GPL");
 
 const struct file_operations prname_fops;
@@ -19,9 +23,13 @@ struct miscdevice prname_dev;
 const struct file_operations jiffies_fops;
 struct miscdevice jiffies_dev;
 
-char prname_name[TASK_COMM_LEN] = { 0 };
+const struct file_operations mountderef_fops;
+struct miscdevice mountderef_dev;
 
-static int __init circular_init(void)
+char prname_name[TASK_COMM_LEN] = { 0 };
+char mountderef_name[TASK_COMM_LEN] = { 0 };
+
+static int __init advanced_init(void)
 {
   int result = 0;
   if ((result = misc_register(&prname_dev)) != 0) {
@@ -33,23 +41,31 @@ static int __init circular_init(void)
            "Cannot register the /dev/jiffies device\n");
     goto err;
   }
+        if ((result = misc_register(&mountderef_dev)) != 0) {
+                printk(KERN_WARNING
+                       "Cannot register the /dev/mountderef device\n");
+                goto err;
+        }
   printk(KERN_INFO "Module advanced initialized");
   return 0;
 
 err:
   misc_deregister(&prname_dev);
   misc_deregister(&jiffies_dev);
+        misc_deregister(&mountderef_dev);
   return result;
 }
 
-static void __exit circular_exit(void)
+static void __exit advanced_exit(void)
 {
   misc_deregister(&prname_dev);
+        misc_deregister(&jiffies_dev);
+        misc_deregister(&mountderef_dev);
   printk(KERN_INFO "Module advanced removed");
 }
 
-module_init(circular_init);
-module_exit(circular_exit);
+module_init(advanced_init);
+module_exit(advanced_exit);
 
 ssize_t prname_read(struct file *filp, char __user *user_buf, size_t count,
 		    loff_t *f_pos)
@@ -159,4 +175,83 @@ struct miscdevice jiffies_dev = {
         .fops = &jiffies_fops,
         .nodename = "jiffies",
         .mode = 0444,
+};
+
+ssize_t mountderef_read(struct file *filp, char __user *user_buf, size_t count,
+                    loff_t *f_pos)
+{
+        ssize_t result = 0;
+
+        size_t length = strnlen(mountderef_name, ARRAY_SIZE(mountderef_name));
+
+        if (length == 0) {
+                result = EINVAL;
+                goto out;
+        }
+
+        if (*f_pos >= length) {
+                result = 0;
+                goto out;
+        }
+
+        size_t bytes_to_copy = min(count, (size_t)(length - *f_pos));
+        result = copy_to_user(user_buf, mountderef_name + *f_pos, bytes_to_copy);
+        if (result != 0) {
+                goto out;
+        }
+
+        *f_pos += bytes_to_copy;
+
+        result = bytes_to_copy;
+
+out:
+        return result;
+}
+
+ssize_t mountderef_write(struct file *filp, const char __user *user_buf,
+                     size_t count, loff_t *f_pos)
+{
+  int result = 0;
+
+  static char path_buff[PATH_MAX + 1];
+  if (count >= PATH_MAX) {
+    result = ERANGE;
+    goto out;
+  }
+
+  result = copy_from_user(path_buff, user_buf, count);
+  if (result != 0) {
+    goto out;
+  }
+  path_buff[count + 1] = 0;
+  printk(KERN_INFO "mountderef path: %s\n", path_buff);
+
+  struct path path;
+
+  result = kern_path(path_buff, LOOKUP_OPEN | LOOKUP_FOLLOW | LOOKUP_DOWN, &path);
+  if (result != 0) {
+    printk(KERN_WARNING "mountderef kern_path result: %d\n", result);
+    goto out;
+  }
+
+  char* path_res = dentry_path_raw(path.mnt->mnt_root, path_buff, ARRAY_SIZE(path_buff));
+  strcpy(mountderef_name, path_res);
+
+  result = count;
+
+ out:
+  return result;
+}
+
+const struct file_operations mountderef_fops = {
+        .read = mountderef_read,
+        .write = mountderef_write,
+};
+
+struct miscdevice mountderef_dev = {
+        .minor = MISC_DYNAMIC_MINOR,
+        .name = "mountderef",
+        .fops = &mountderef_fops,
+        .nodename = "mountderef",
+        .mode = 0666,
 };
